@@ -3,51 +3,84 @@ import scala.concurrent._
 import scala.concurrent.duration._
 import scala.util.Random
 import ExecutionContext.Implicits.global
+import scala.collection.mutable.ArrayBuffer
 
 trait Operation
 case class Insert(value: (Int, Int)) extends Operation
 case class Remove(value: Int) extends Operation
+case class Snapshot() extends Operation
 
-object SameStructure {
+object Main {
 
-  def populateTrie(operations: Seq[Operation]): Future[TrieMap[Int, Int]] = {
+  def generateOperations(
+      length: Int,
+      intLimit: Int,
+      percentOfSnapshots: Float
+  ): Seq[Operation] = {
+
+    val snapshotsAmount = (length * percentOfSnapshots).ceil.toInt
+    val rest = 1 - percentOfSnapshots
+    val restAmount = length * (rest / 2)
+
+    val snapshots = (0 until snapshotsAmount) map { _ => Snapshot() }
+
+    var validInt: Set[Int] = Set()
+    val inserts = (0 until restAmount.ceil.toInt) map { _ =>
+      val key = Random.nextInt(intLimit)
+      validInt += key
+      Insert(key, Random.nextInt(intLimit))
+    }
+
+    val removes = (0 until restAmount.floor.toInt) map { _ =>
+      val isValidInt = Random.nextBoolean
+      if (validInt.size > 0 && isValidInt) {
+        val removedInt = validInt.toVector(Random.nextInt(validInt.size))
+        validInt -= removedInt
+        Remove(removedInt)
+      } else {
+        Remove(Random.nextInt(length + intLimit))
+      }
+    }
+
+    // printf(
+    //   "%d + %d + %d = %d\n",
+    //   snapshots.length,
+    //   inserts.length,
+    //   removes.length,
+    //   snapshots.length + inserts.length + removes.length
+    // )
+
+    Random.shuffle(snapshots ++ inserts ++ removes)
+  }
+
+  def populateTrie(
+      operations: Seq[Operation]
+  ): Future[ArrayBuffer[TrieMap[Int, Int]]] = {
     Future {
       val trie = TrieMap[Int, Int]()
+      val snapshots = ArrayBuffer[TrieMap[Int, Int]]()
+
       operations foreach { op =>
         op match {
           case Insert(value) => trie += value
           case Remove(value) => trie.remove(value)
+          case Snapshot()    => snapshots += trie.snapshot()
         }
 
       }
-      trie
+      snapshots += trie
+      snapshots
     }
   }
 
   def main(args: Array[String]) = {
 
-    val length = 100
+    val length = 10000
+    val intLimit = 1000
+    val snapshotPercent: Float = .1
 
-    var validInt: Set[Int] = Set()
-    val operations: Seq[Operation] = (0 until length) map { id =>
-      val isInsert = Random.nextBoolean
-      if (isInsert) {
-        validInt += id
-        Insert(id, Random.nextInt(1000))
-      } else {
-        val isValidInt = Random.nextBoolean
-        if (validInt.size > 0 && isValidInt) {
-          val removedInt = validInt.toVector(Random.nextInt(validInt.size))
-          validInt -= removedInt
-          Remove(removedInt)
-        } else {
-          Remove(Random.nextInt(length + 1000))
-        }
-      }
-    }
+    val operations = generateOperations(length, intLimit, snapshotPercent)
 
-    println(length)
-    // println(operations)
     val firstFuture = populateTrie(operations)
     val secondFuture = populateTrie(operations)
 
@@ -56,30 +89,27 @@ object SameStructure {
       secondResult <- secondFuture
     } yield (firstResult, secondResult)
 
-    // aggFut.onComplete { x =>
-    //     val results = x.get
-    //     val firstTrie = results._1
-    //     val secondTrie = results._2
-    //     println("%d %d".format(firstTrie.size, secondTrie.size))
-    //     println(firstTrie)
-    //     println(secondTrie)
-
-    //     val firstSnap = firstTrie.snapshot
-    //     val secondSnap = secondTrie.snapshot
-
-    //     println(firstSnap.zip(secondSnap).filter(x => x._1 == x._2).size)
-    // }
-
     val something = Await.ready(aggFut, 3600.seconds)
 
     val tries = something.value.get.get
-    val firstTrie = tries._1
-    val secondTrie = tries._2
+    val firstBuffer = tries._1
+    val secondBuffer = tries._2
 
-    println("%d %d".format(firstTrie.size, secondTrie.size))
-    // println(firstTrie)
-    // println(secondTrie)
-    println(firstTrie == secondTrie)
+    val numberOfSnapshots = firstBuffer.length
+    val equalTries = firstBuffer
+      .zip(secondBuffer)
+      .filter { pair =>
+        val (left, right) = pair
+        left == right
+      }
+      .length
+
+    printf(
+      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %d\n",
+      length,
+      numberOfSnapshots,
+      equalTries
+    )
 
   }
 
