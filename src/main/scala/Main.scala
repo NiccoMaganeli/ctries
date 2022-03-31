@@ -4,6 +4,11 @@ import scala.concurrent.duration._
 import scala.util.Random
 import ExecutionContext.Implicits.global
 import scala.collection.mutable.ArrayBuffer
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
+import java.io.FileOutputStream
+import java.io.FileInputStream
+import java.io.File
 
 trait Operation
 case class Insert(value: (Int, Int)) extends Operation
@@ -42,14 +47,6 @@ object Main {
       }
     }
 
-    // printf(
-    //   "%d + %d + %d = %d\n",
-    //   snapshots.length,
-    //   inserts.length,
-    //   removes.length,
-    //   snapshots.length + inserts.length + removes.length
-    // )
-
     Random.shuffle(snapshots ++ inserts ++ removes)
   }
 
@@ -71,6 +68,37 @@ object Main {
       snapshots += trie
       snapshots
     }
+  }
+
+  def saveAndReadTrie(
+      trie: TrieMap[Int, Int]
+  ): TrieMap[Int, Int] = {
+
+    val targetPath = "./trie"
+
+    val oos = new ObjectOutputStream(new FileOutputStream(targetPath))
+    oos.writeObject(trie)
+    oos.close
+
+    val ois = new ObjectInputStream(new FileInputStream(targetPath))
+    val fileTrie = ois.readObject.asInstanceOf[TrieMap[Int, Int]]
+    ois.close
+
+    new File(targetPath).delete()
+
+    fileTrie
+  }
+
+  def compareAllTries(
+      left: ArrayBuffer[TrieMap[Int, Int]],
+      right: ArrayBuffer[TrieMap[Int, Int]]
+  ): Boolean = {
+    left
+      .zip(right)
+      .forall(pair => {
+        val (l, r) = pair
+        l == r
+      })
   }
 
   def main(args: Array[String]) = {
@@ -96,19 +124,17 @@ object Main {
     val secondBuffer = tries._2
 
     val numberOfSnapshots = firstBuffer.length
-    val equalTries = firstBuffer
-      .zip(secondBuffer)
-      .filter { pair =>
-        val (left, right) = pair
-        left == right
-      }
-      .length
+    val equalTries = compareAllTries(firstBuffer, secondBuffer)
+
+    val deserializedTries = firstBuffer map saveAndReadTrie
+    val serializedEqualTries = compareAllTries(firstBuffer, deserializedTries)
 
     printf(
-      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %d\n",
+      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %b\nSerialized is equal: %b\n",
       length,
       numberOfSnapshots,
-      equalTries
+      equalTries,
+      serializedEqualTries
     )
 
   }
