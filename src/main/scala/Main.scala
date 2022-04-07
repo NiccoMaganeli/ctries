@@ -163,9 +163,9 @@ object Main {
       secondResult <- secondFuture
     } yield (firstResult, secondResult)
 
-    val something = Await.ready(aggFut, 3600.seconds)
+    val futureTries = Await.ready(aggFut, 3600.seconds)
 
-    val tries = something.value.get.get
+    val tries = futureTries.value.get.get
     val firstBuffer = tries._1
     val secondBuffer = tries._2
 
