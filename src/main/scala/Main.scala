@@ -4,11 +4,17 @@ import scala.concurrent.duration._
 import scala.util.Random
 import ExecutionContext.Implicits.global
 import scala.collection.mutable.ArrayBuffer
-import java.io.ObjectInputStream
-import java.io.ObjectOutputStream
-import java.io.FileOutputStream
-import java.io.FileInputStream
-import java.io.File
+import java.io.{
+  ObjectInputStream,
+  ObjectOutputStream,
+  FileOutputStream,
+  FileInputStream,
+  File,
+  ByteArrayInputStream
+}
+import java.nio.charset.StandardCharsets.ISO_8859_1
+import java.nio.charset.Charset
+import java.nio.ByteBuffer
 
 trait Operation
 case class Insert(value: (Int, Int)) extends Operation
@@ -70,21 +76,34 @@ object Main {
     }
   }
 
+  def createDir(dirPath: String): Unit = {
+    val dir = new File(dirPath)
+    if (!dir.exists()) dir.mkdir()
+  }
+
+  def deleteFile(filePath: String): Boolean = new File(filePath).delete()
+
   def saveAndReadTrie(
-      trie: TrieMap[Int, Int]
+      id: Int,
+      trie: TrieMap[Int, Int],
+      delFile: Boolean = true
   ): TrieMap[Int, Int] = {
 
-    val targetPath = "./trie"
+    val dirPath = "./tries/"
+    val targetFile = "trie-" + id
+    val completePath = dirPath.concat(targetFile)
 
-    val oos = new ObjectOutputStream(new FileOutputStream(targetPath))
+    createDir(dirPath)
+
+    val oos = new ObjectOutputStream(new FileOutputStream(completePath))
     oos.writeObject(trie)
     oos.close
 
-    val ois = new ObjectInputStream(new FileInputStream(targetPath))
+    val ois = new ObjectInputStream(new FileInputStream(completePath))
     val fileTrie = ois.readObject.asInstanceOf[TrieMap[Int, Int]]
     ois.close
 
-    new File(targetPath).delete()
+    if (delFile) deleteFile(completePath)
 
     fileTrie
   }
@@ -99,6 +118,33 @@ object Main {
         val (l, r) = pair
         l == r
       })
+  }
+
+  def readFromMultipleSourcesTrie(
+      trie: TrieMap[Int, Int],
+      id: Int
+  ): TrieMap[Int, Int] = {
+    val filePath = "./tries/trie-" + id
+
+    val serializedRaw =
+      io.Source.fromFile(filePath, "ISO8859-1").mkString
+    val serializedLength = serializedRaw.length
+
+    val firstPart = serializedRaw.take(serializedLength / 2)
+    val secondPart = serializedRaw.drop(serializedLength / 2)
+
+    val bytes =
+      Charset
+        .forName("ISO-8859-1")
+        .newDecoder()
+        .decode(ByteBuffer.wrap((firstPart + secondPart).getBytes(ISO_8859_1)))
+    val ois = new ObjectInputStream(
+      new ByteArrayInputStream(bytes.array().map { c => c.toByte })
+    )
+    val newTrie = ois.readObject.asInstanceOf[TrieMap[Int, Int]]
+    ois.close
+
+    newTrie
   }
 
   def main(args: Array[String]) = {
@@ -126,15 +172,27 @@ object Main {
     val numberOfSnapshots = firstBuffer.length
     val equalTries = compareAllTries(firstBuffer, secondBuffer)
 
-    val deserializedTries = firstBuffer map saveAndReadTrie
+    val deserializedTries = firstBuffer.zipWithIndex.map { case (trie, index) =>
+      saveAndReadTrie(index, trie, false)
+    }
+
     val serializedEqualTries = compareAllTries(firstBuffer, deserializedTries)
 
+    val splittedSerializationTries = firstBuffer.zipWithIndex.map {
+      case (trie, index) =>
+        readFromMultipleSourcesTrie(trie, index)
+    }
+
+    val multipleSourceSerializedEqualTries =
+      compareAllTries(firstBuffer, splittedSerializationTries)
+
     printf(
-      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %b\nSerialized is equal: %b\n",
+      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %b\nSerialized is equal: %b\nMultiple source is equal: %b\n",
       length,
       numberOfSnapshots,
       equalTries,
-      serializedEqualTries
+      serializedEqualTries,
+      multipleSourceSerializedEqualTries
     )
 
   }
