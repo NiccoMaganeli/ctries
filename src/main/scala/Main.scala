@@ -130,8 +130,7 @@ object Main {
       io.Source.fromFile(filePath, "ISO8859-1").mkString
     val serializedLength = serializedRaw.length
 
-    val firstPart = serializedRaw.take(serializedLength / 2)
-    val secondPart = serializedRaw.drop(serializedLength / 2)
+    val (firstPart, secondPart) = serializedRaw.splitAt(serializedLength / 2)
 
     val bytes =
       Charset
@@ -149,7 +148,7 @@ object Main {
 
   def main(args: Array[String]) = {
 
-    val length = 10000
+    val length = 1000
     val intLimit = 1000
     val snapshotPercent: Float = .1
 
@@ -163,11 +162,8 @@ object Main {
       secondResult <- secondFuture
     } yield (firstResult, secondResult)
 
-    val futureTries = Await.ready(aggFut, 3600.seconds)
-
-    val tries = futureTries.value.get.get
-    val firstBuffer = tries._1
-    val secondBuffer = tries._2
+    val (firstBuffer, secondBuffer) =
+      Await.ready(aggFut, 3600.seconds).value.get.get
 
     val numberOfSnapshots = firstBuffer.length
     val equalTries = compareAllTries(firstBuffer, secondBuffer)
