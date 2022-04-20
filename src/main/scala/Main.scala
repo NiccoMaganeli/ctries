@@ -25,7 +25,8 @@ object Main {
 
   def generateOperations(
       length: Int,
-      intLimit: Int,
+      start: Int,
+      end: Int,
       percentOfSnapshots: Float
   ): Seq[Operation] = {
 
@@ -37,9 +38,9 @@ object Main {
 
     var validInt: Set[Int] = Set()
     val inserts = (0 until restAmount.ceil.toInt) map { _ =>
-      val key = Random.nextInt(intLimit)
+      val key = Random.between(start, end)
       validInt += key
-      Insert(key, Random.nextInt(intLimit))
+      Insert(key, Random.between(start, end))
     }
 
     val removes = (0 until restAmount.floor.toInt) map { _ =>
@@ -47,9 +48,9 @@ object Main {
       if (validInt.size > 0 && isValidInt) {
         val removedInt = validInt.toVector(Random.nextInt(validInt.size))
         validInt -= removedInt
-        Remove(removedInt)
+        Remove(removedInt) // Value that is inside tree
       } else {
-        Remove(Random.nextInt(length + intLimit))
+        Remove(-1) // Value that is never inside the tree
       }
     }
 
@@ -57,10 +58,10 @@ object Main {
   }
 
   def populateTrie(
+      trie: TrieMap[Int, Int],
       operations: Seq[Operation]
   ): Future[ArrayBuffer[TrieMap[Int, Int]]] = {
     Future {
-      val trie = TrieMap[Int, Int]()
       val snapshots = ArrayBuffer[TrieMap[Int, Int]]()
 
       operations foreach { op =>
@@ -148,49 +149,45 @@ object Main {
 
   def main(args: Array[String]) = {
 
-    val length = 1000
-    val intLimit = 1000
+    val amountOfGroups = 10
+    val length = 10000
     val snapshotPercent: Float = .1
 
-    val operations = generateOperations(length, intLimit, snapshotPercent)
-
-    val firstFuture = populateTrie(operations)
-    val secondFuture = populateTrie(operations)
-
-    val aggFut = for {
-      firstResult <- firstFuture
-      secondResult <- secondFuture
-    } yield (firstResult, secondResult)
-
-    val (firstBuffer, secondBuffer) =
-      Await.ready(aggFut, 3600.seconds).value.get.get
-
-    val numberOfSnapshots = firstBuffer.length
-    val equalTries = compareAllTries(firstBuffer, secondBuffer)
-
-    val deserializedTries = firstBuffer.zipWithIndex.map { case (trie, index) =>
-      saveAndReadTrie(index, trie, false)
+    var operationsGroups: Seq[Seq[Operation]] = Seq();
+    for (i <- 0 to amountOfGroups) {
+      operationsGroups = operationsGroups :+ generateOperations(
+        length,
+        i * length,
+        i * length + length,
+        snapshotPercent
+      )
     }
 
-    val serializedEqualTries = compareAllTries(firstBuffer, deserializedTries)
+    val firstTrie = TrieMap[Int, Int]()
+    val secondTrie = TrieMap[Int, Int]()
 
-    val splittedSerializationTries = firstBuffer.zipWithIndex.map {
-      case (trie, index) =>
-        readFromMultipleSourcesTrie(trie, index)
+    var firstFutures = Seq[Future[ArrayBuffer[TrieMap[Int, Int]]]]()
+    var secondFutures = Seq[Future[ArrayBuffer[TrieMap[Int, Int]]]]()
+
+    for (operations <- operationsGroups) {
+      firstFutures = firstFutures :+ populateTrie(firstTrie, operations)
+      secondFutures = secondFutures :+ populateTrie(secondTrie, operations)
     }
 
-    val multipleSourceSerializedEqualTries =
-      compareAllTries(firstBuffer, splittedSerializationTries)
+    val seqFirstTrieBuffers =
+      Await.result(Future.sequence(firstFutures), 3600.seconds)
+    val seqSecondTrieBuffers =
+      Await.result(Future.sequence(secondFutures), 3600.seconds)
 
-    printf(
-      "Number of operations: %d\nSnapshots length: %d\nEqual tries: %b\nSerialized is equal: %b\nMultiple source is equal: %b\n",
-      length,
-      numberOfSnapshots,
-      equalTries,
-      serializedEqualTries,
-      multipleSourceSerializedEqualTries
-    )
+    println("Are concurrent snapshots equal?")
+    for (
+      (firstBuffer, secondBuffer) <-
+        seqFirstTrieBuffers zip seqSecondTrieBuffers
+    ) {
+      println(compareAllTries(firstBuffer, secondBuffer))
+    }
 
+    println("Final tries are equal? " + (firstTrie == secondTrie).toString)
   }
 
 }
